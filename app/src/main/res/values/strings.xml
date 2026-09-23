@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Solo Tilt</string>
+    <string name="wallpaper_name">Solo Tilt Live Wallpaper</string>
+    <string name="wallpaper_description">A motion-responsive depth and parallax wallpaper.</string>
+</resources>
