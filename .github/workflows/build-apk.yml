@@ -2,7 +2,6 @@ name: Build Solo Tilt APK
 
 on:
   workflow_dispatch:
-
   push:
     branches:
       - main
@@ -32,11 +31,18 @@ jobs:
           gradle --version
 
       - name: Build release APK
-        run: gradle --no-daemon clean assembleRelease
+        run: |
+          gradle --no-daemon clean assembleRelease
+
+      - name: Find generated APK
+        run: |
+          echo "Searching for APK files..."
+          find . -type f -name "*.apk" -print
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: solotilt-live-wallpaper
-          path: app/build/outputs/apk/release/app-release.apk
+          path: |
+            app/build/outputs/apk/release/*.apk
           if-no-files-found: error
