@@ -9,21 +9,15 @@ import android.graphics.LinearGradient
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.RectF
-import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.net.Uri
-import android.os.Build
-import android.os.Handler
-import android.os.HandlerThread
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
-import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.min
 
 class SoloTiltWallpaperService : WallpaperService() {
 
@@ -31,101 +25,129 @@ class SoloTiltWallpaperService : WallpaperService() {
         return SoloTiltEngine()
     }
 
-    private inner class SoloTiltEngine : Engine(), SensorEventListener {
+    private inner class SoloTiltEngine :
+        Engine(),
+        SensorEventListener {
 
-        private val prefs = getSharedPreferences(
-            MainActivity.PREFS,
-            Context.MODE_PRIVATE
-        )
+        private val prefs =
+            getSharedPreferences(
+                SoloTiltPrefs.PREFS,
+                Context.MODE_PRIVATE
+            )
 
         private val sensorManager =
-            getSystemService(Context.SENSOR_SERVICE) as SensorManager
+            getSystemService(
+                Context.SENSOR_SERVICE
+            ) as SensorManager
 
         private val rotationSensor =
-            sensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
-                ?: sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+            sensorManager.getDefaultSensor(
+                Sensor.TYPE_GAME_ROTATION_VECTOR
+            )
+                ?: sensorManager.getDefaultSensor(
+                    Sensor.TYPE_ROTATION_VECTOR
+                )
 
-        private val rotationMatrix = FloatArray(9)
-        private val orientation = FloatArray(3)
+        private val rotationMatrix =
+            FloatArray(9)
 
-        private val renderThread = HandlerThread("SoloTiltRenderer").apply {
-            start()
-        }
-
-        private val renderHandler = Handler(renderThread.looper)
-
-        private val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val imagePaint = Paint(
-            Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG
-        )
-        private val blurPaint = Paint(
-            Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG
-        )
-        private val vignettePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val orientation =
+            FloatArray(3)
 
         private var bitmap: Bitmap? = null
+
         private var surfaceWidth = 0
         private var surfaceHeight = 0
+
         private var visible = false
-        private var frameScheduled = false
 
         private var rawTiltX = 0f
         private var rawTiltY = 0f
+
         private var tiltX = 0f
         private var tiltY = 0f
 
-        private var sensitivity = 100f
+        private var sensitivity = 1f
         private var depth = 100f
         private var blur = 30f
 
+        private val backgroundPaint =
+            Paint(Paint.ANTI_ALIAS_FLAG)
+
+        private val imagePaint =
+            Paint(
+                Paint.ANTI_ALIAS_FLAG or
+                    Paint.FILTER_BITMAP_FLAG
+            )
+
+        private val depthPaint =
+            Paint(
+                Paint.ANTI_ALIAS_FLAG or
+                    Paint.FILTER_BITMAP_FLAG
+            )
+
+        private val vignettePaint =
+            Paint(Paint.ANTI_ALIAS_FLAG)
+
         private val prefsListener =
-            android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-                if (
-                    key == MainActivity.KEY_IMAGE_URI ||
-                    key == MainActivity.KEY_SENSITIVITY ||
-                    key == MainActivity.KEY_DEPTH ||
-                    key == MainActivity.KEY_BLUR
-                ) {
+            android.content.SharedPreferences
+                .OnSharedPreferenceChangeListener {
+                    _,
+                    key ->
+
                     reloadSettings()
-                    if (key == MainActivity.KEY_IMAGE_URI) {
+
+                    if (
+                        key ==
+                        SoloTiltPrefs.KEY_IMAGE_URI
+                    ) {
                         loadBitmap()
                     }
-                    requestFrame()
                 }
-            }
-
-        private val frameRunnable = object : Runnable {
-            override fun run() {
-                frameScheduled = false
-
-                if (!visible) return
-
-                drawFrame()
-
-                if (visible) {
-                    requestFrame()
-                }
-            }
-        }
 
         init {
-            prefs.registerOnSharedPreferenceChangeListener(prefsListener)
+
+            prefs.registerOnSharedPreferenceChangeListener(
+                prefsListener
+            )
+
             reloadSettings()
         }
 
-        override fun onCreate(surfaceHolder: SurfaceHolder) {
-            super.onCreate(surfaceHolder)
+        override fun onCreate(
+            surfaceHolder: SurfaceHolder
+        ) {
 
-            surfaceHolder.setFormat(android.graphics.PixelFormat.RGBA_8888)
-            setOffsetNotificationsEnabled(false)
+            super.onCreate(
+                surfaceHolder
+            )
+
+            surfaceHolder.setFormat(
+                android.graphics.PixelFormat.RGBA_8888
+            )
+
+            setOffsetNotificationsEnabled(
+                false
+            )
+
             loadBitmap()
         }
 
-        override fun onSurfaceCreated(holder: SurfaceHolder) {
-            super.onSurfaceCreated(holder)
-            surfaceWidth = holder.surfaceFrame.width()
-            surfaceHeight = holder.surfaceFrame.height()
-            requestFrame()
+        override fun onSurfaceCreated(
+            holder: SurfaceHolder
+        ) {
+
+            super.onSurfaceCreated(
+                holder
+            )
+
+            surfaceWidth =
+                holder.surfaceFrame.width()
+
+            surfaceHeight =
+                holder.surfaceFrame.height()
+
+            drawFrame()
         }
 
         override fun onSurfaceChanged(
@@ -134,145 +156,226 @@ class SoloTiltWallpaperService : WallpaperService() {
             width: Int,
             height: Int
         ) {
-            super.onSurfaceChanged(holder, format, width, height)
+
+            super.onSurfaceChanged(
+                holder,
+                format,
+                width,
+                height
+            )
+
             surfaceWidth = width
             surfaceHeight = height
-            requestFrame()
+
+            drawFrame()
         }
 
-        override fun onSurfaceDestroyed(holder: SurfaceHolder) {
-            super.onSurfaceDestroyed(holder)
-            surfaceWidth = 0
-            surfaceHeight = 0
-        }
+        override fun onVisibilityChanged(
+            isVisible: Boolean
+        ) {
 
-        override fun onVisibilityChanged(isVisible: Boolean) {
             visible = isVisible
 
             if (visible) {
                 startSensors()
-                requestFrame()
+                drawFrame()
             } else {
                 stopSensors()
-                renderHandler.removeCallbacks(frameRunnable)
-                frameScheduled = false
             }
+        }
+
+        override fun onSurfaceDestroyed(
+            holder: SurfaceHolder
+        ) {
+
+            super.onSurfaceDestroyed(
+                holder
+            )
+
+            surfaceWidth = 0
+            surfaceHeight = 0
         }
 
         override fun onDestroy() {
-            visible = false
-            stopSensors()
-            renderHandler.removeCallbacksAndMessages(null)
 
-            prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
+            visible = false
+
+            stopSensors()
+
+            prefs.unregisterOnSharedPreferenceChangeListener(
+                prefsListener
+            )
 
             bitmap?.recycle()
+
             bitmap = null
 
-            renderThread.quitSafely()
             super.onDestroy()
         }
 
-        override fun onSensorChanged(event: SensorEvent) {
-            if (!visible) return
+        override fun onSensorChanged(
+            event: SensorEvent
+        ) {
 
-            if (event.sensor.type == Sensor.TYPE_GAME_ROTATION_VECTOR ||
-                event.sensor.type == Sensor.TYPE_ROTATION_VECTOR
-            ) {
-                SensorManager.getRotationMatrixFromVector(
-                    rotationMatrix,
-                    event.values
-                )
-
-                SensorManager.getOrientation(
-                    rotationMatrix,
-                    orientation
-                )
-
-                val pitch = orientation[1]
-                val roll = orientation[2]
-
-                rawTiltX = (roll / 0.65f).coerceIn(-1f, 1f)
-                rawTiltY = (pitch / 0.65f).coerceIn(-1f, 1f)
+            if (!visible) {
+                return
             }
 
-            // Low-pass smoothing for a stable "floating photo" feel.
-            val smoothing = 0.14f
-            tiltX += (rawTiltX - tiltX) * smoothing
-            tiltY += (rawTiltY - tiltY) * smoothing
+            if (
+                event.sensor.type ==
+                Sensor.TYPE_GAME_ROTATION_VECTOR ||
+
+                event.sensor.type ==
+                Sensor.TYPE_ROTATION_VECTOR
+            ) {
+
+                SensorManager
+                    .getRotationMatrixFromVector(
+                        rotationMatrix,
+                        event.values
+                    )
+
+                SensorManager
+                    .getOrientation(
+                        rotationMatrix,
+                        orientation
+                    )
+
+                val pitch =
+                    orientation[1]
+
+                val roll =
+                    orientation[2]
+
+                rawTiltX =
+                    (roll / 0.65f)
+                        .coerceIn(
+                            -1f,
+                            1f
+                        )
+
+                rawTiltY =
+                    (pitch / 0.65f)
+                        .coerceIn(
+                            -1f,
+                            1f
+                        )
+
+                val smoothing =
+                    0.14f
+
+                tiltX +=
+                    (
+                        rawTiltX -
+                            tiltX
+                        ) * smoothing
+
+                tiltY +=
+                    (
+                        rawTiltY -
+                            tiltY
+                        ) * smoothing
+
+                drawFrame()
+            }
         }
 
-        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+        override fun onAccuracyChanged(
+            sensor: Sensor?,
+            accuracy: Int
+        ) {
+        }
 
         private fun startSensors() {
-            rotationSensor?.let {
+
+            rotationSensor?.let { sensor ->
+
                 sensorManager.registerListener(
                     this,
-                    it,
+                    sensor,
                     SensorManager.SENSOR_DELAY_GAME
                 )
             }
         }
 
         private fun stopSensors() {
-            sensorManager.unregisterListener(this)
+
+            sensorManager.unregisterListener(
+                this
+            )
         }
 
         private fun reloadSettings() {
-            sensitivity = prefs.getInt(
-                MainActivity.KEY_SENSITIVITY,
-                100
-            ).toFloat() / 100f
 
-            depth = prefs.getInt(
-                MainActivity.KEY_DEPTH,
-                100
-            ).toFloat()
+            sensitivity =
+                prefs.getInt(
+                    SoloTiltPrefs.KEY_SENSITIVITY,
+                    100
+                ).toFloat() / 100f
 
-            blur = prefs.getInt(
-                MainActivity.KEY_BLUR,
-                30
-            ).toFloat()
+            depth =
+                prefs.getInt(
+                    SoloTiltPrefs.KEY_DEPTH,
+                    100
+                ).toFloat()
+
+            blur =
+                prefs.getInt(
+                    SoloTiltPrefs.KEY_BLUR,
+                    30
+                ).toFloat()
         }
 
         private fun loadBitmap() {
-            val uriString = prefs.getString(
-                MainActivity.KEY_IMAGE_URI,
-                null
-            )
 
-            val old = bitmap
-            bitmap = null
+            val uriString =
+                prefs.getString(
+                    SoloTiltPrefs.KEY_IMAGE_URI,
+                    null
+                )
 
-            if (old != null && !old.isRecycled) {
-                old.recycle()
+            bitmap?.let { old ->
+
+                if (!old.isRecycled) {
+                    old.recycle()
+                }
             }
 
-            if (uriString.isNullOrBlank()) return
+            bitmap = null
 
-            val uri = Uri.parse(uriString)
+            if (uriString.isNullOrBlank()) {
+                return
+            }
 
             try {
-                contentResolver.openInputStream(uri)?.use { stream ->
-                    bitmap = BitmapFactory.decodeStream(stream)
-                }
+
+                val uri =
+                    Uri.parse(uriString)
+
+                contentResolver
+                    .openInputStream(uri)
+                    ?.use { stream ->
+
+                        bitmap =
+                            BitmapFactory
+                                .decodeStream(
+                                    stream
+                                )
+                    }
+
             } catch (_: Exception) {
+
                 bitmap = null
             }
         }
 
-        private fun requestFrame() {
-            if (!visible || frameScheduled) return
-
-            frameScheduled = true
-
-            renderHandler.post(frameRunnable)
-        }
-
         private fun drawFrame() {
-            val holder = surfaceHolder
 
-            if (!holder.surface.isValid ||
+            val holder =
+                surfaceHolder
+
+            if (
+                !holder.surface.isValid ||
                 surfaceWidth <= 0 ||
                 surfaceHeight <= 0
             ) {
@@ -282,151 +385,224 @@ class SoloTiltWallpaperService : WallpaperService() {
             var canvas: Canvas? = null
 
             try {
-                canvas = holder.lockCanvas()
 
-                if (canvas == null) return
+                canvas =
+                    holder.lockCanvas()
 
-                render(canvas)
-            } catch (_: Exception) {
-                // Surface can disappear while the launcher is switching windows.
-            } finally {
                 if (canvas != null) {
+                    render(canvas)
+                }
+
+            } catch (_: Exception) {
+
+            } finally {
+
+                canvas?.let {
+
                     try {
-                        holder.unlockCanvasAndPost(canvas)
+                        holder.unlockCanvasAndPost(
+                            it
+                        )
                     } catch (_: Exception) {
                     }
                 }
             }
         }
 
-        private fun render(canvas: Canvas) {
-            val w = canvas.width.toFloat()
-            val h = canvas.height.toFloat()
+        private fun render(
+            canvas: Canvas
+        ) {
 
-            drawDefaultBackground(canvas, w, h)
+            val width =
+                canvas.width.toFloat()
 
-            val currentBitmap = bitmap
+            val height =
+                canvas.height.toFloat()
 
-            if (currentBitmap != null &&
-                !currentBitmap.isRecycled &&
-                currentBitmap.width > 0 &&
-                currentBitmap.height > 0
+            drawDefaultBackground(
+                canvas,
+                width,
+                height
+            )
+
+            val currentBitmap =
+                bitmap
+
+            if (
+                currentBitmap != null &&
+                !currentBitmap.isRecycled
             ) {
-                drawBlurredDepthLayer(canvas, currentBitmap, w, h)
-                drawSharpImageLayer(canvas, currentBitmap, w, h)
+
+                drawDepthLayer(
+                    canvas,
+                    currentBitmap,
+                    width,
+                    height
+                )
+
+                drawMainImage(
+                    canvas,
+                    currentBitmap,
+                    width,
+                    height
+                )
             }
 
-            drawVignette(canvas, w, h)
+            drawVignette(
+                canvas,
+                width,
+                height
+            )
         }
 
         private fun drawDefaultBackground(
             canvas: Canvas,
-            w: Float,
-            h: Float
+            width: Float,
+            height: Float
         ) {
-            val x = tiltX * 120f * sensitivity
-            val y = tiltY * 160f * sensitivity
 
-            val gradient = LinearGradient(
-                w * 0.15f + x,
-                h * 0.05f + y,
-                w * 0.9f + x,
-                h * 1.1f + y,
-                Color.rgb(239, 107, 213),
-                Color.rgb(249, 89, 142),
-                Shader.TileMode.CLAMP
+            val moveX =
+                tiltX *
+                    120f *
+                    sensitivity
+
+            val moveY =
+                tiltY *
+                    160f *
+                    sensitivity
+
+            val gradient =
+                LinearGradient(
+                    width * 0.15f + moveX,
+                    height * 0.05f + moveY,
+                    width * 0.9f + moveX,
+                    height * 1.1f + moveY,
+                    Color.rgb(
+                        239,
+                        107,
+                        213
+                    ),
+                    Color.rgb(
+                        249,
+                        89,
+                        142
+                    ),
+                    Shader.TileMode.CLAMP
+                )
+
+            backgroundPaint.shader =
+                gradient
+
+            canvas.drawRect(
+                0f,
+                0f,
+                width,
+                height,
+                backgroundPaint
             )
 
-            backgroundPaint.shader = gradient
-            canvas.drawRect(0f, 0f, w, h, backgroundPaint)
             backgroundPaint.shader = null
 
-            val circlePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+            val light =
+                Paint(
+                    Paint.ANTI_ALIAS_FLAG
+                )
 
-            circlePaint.color = 0x28FFFFFF
+            light.color =
+                0x35FFFFFF
+
             canvas.drawCircle(
-                w * 0.18f + tiltX * 55f,
-                h * 0.05f + tiltY * 55f,
-                w * 0.48f,
-                circlePaint
+                width * 0.18f +
+                    tiltX * 55f,
+                height * 0.05f +
+                    tiltY * 55f,
+                width * 0.48f,
+                light
             )
 
-            circlePaint.color = 0x22000000
+            light.color =
+                0x26000000
+
             canvas.drawCircle(
-                w * 0.78f - tiltX * 75f,
-                h * 0.88f - tiltY * 80f,
-                w * 0.50f,
-                circlePaint
+                width * 0.78f -
+                    tiltX * 75f,
+                height * 0.88f -
+                    tiltY * 80f,
+                width * 0.50f,
+                light
             )
         }
 
-        private fun drawBlurredDepthLayer(
+        private fun drawDepthLayer(
             canvas: Canvas,
             image: Bitmap,
-            w: Float,
-            h: Float
+            width: Float,
+            height: Float
         ) {
-            val matrix = createCoverMatrix(
-                image,
-                w,
-                h,
-                1.18f
+
+            val matrix =
+                createCoverMatrix(
+                    image,
+                    width,
+                    height,
+                    1.18f
+                )
+
+            matrix.postTranslate(
+                tiltX *
+                    depth *
+                    1.15f *
+                    sensitivity,
+
+                tiltY *
+                    depth *
+                    1.15f *
+                    sensitivity
             )
 
-            val dx = tiltX * depth * 1.15f * sensitivity
-            val dy = tiltY * depth * 1.15f * sensitivity
-
-            matrix.postTranslate(dx, dy)
-
-            blurPaint.alpha = 135
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val radius = min(blur, 80f) * 0.18f
-
-                blurPaint.renderEffect =
-                    if (radius > 0.1f) {
-                        RenderEffect.createBlurEffect(
-                            radius,
-                            radius,
-                            Shader.TileMode.CLAMP
+            depthPaint.alpha =
+                (
+                    80 +
+                        blur * 1.5f
+                    ).toInt()
+                        .coerceIn(
+                            70,
+                            200
                         )
-                    } else {
-                        null
-                    }
-            }
 
             canvas.drawBitmap(
                 image,
                 matrix,
-                blurPaint
+                depthPaint
             )
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                blurPaint.renderEffect = null
-            }
-
-            blurPaint.alpha = 255
+            depthPaint.alpha = 255
         }
 
-        private fun drawSharpImageLayer(
+        private fun drawMainImage(
             canvas: Canvas,
             image: Bitmap,
-            w: Float,
-            h: Float
+            width: Float,
+            height: Float
         ) {
-            val matrix = createCoverMatrix(
-                image,
-                w,
-                h,
-                1.12f
+
+            val matrix =
+                createCoverMatrix(
+                    image,
+                    width,
+                    height,
+                    1.12f
+                )
+
+            matrix.postTranslate(
+                tiltX *
+                    depth *
+                    sensitivity,
+
+                tiltY *
+                    depth *
+                    sensitivity
             )
-
-            val dx = tiltX * depth * sensitivity
-            val dy = tiltY * depth * sensitivity
-
-            matrix.postTranslate(dx, dy)
-
-            imagePaint.alpha = 255
 
             canvas.drawBitmap(
                 image,
@@ -434,28 +610,39 @@ class SoloTiltWallpaperService : WallpaperService() {
                 imagePaint
             )
 
-            // A soft light wash moves in the opposite direction,
-            // reinforcing the depth illusion.
-            val glowX = w * 0.5f - tiltX * 90f
-            val glowY = h * 0.25f - tiltY * 90f
+            val glowX =
+                width * 0.5f -
+                    tiltX * 90f
 
-            val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                shader = LinearGradient(
-                    glowX - w * 0.45f,
-                    glowY - h * 0.25f,
-                    glowX + w * 0.45f,
-                    glowY + h * 0.55f,
+            val glowY =
+                height * 0.25f -
+                    tiltY * 90f
+
+            val glowPaint =
+                Paint(
+                    Paint.ANTI_ALIAS_FLAG
+                )
+
+            glowPaint.shader =
+                LinearGradient(
+                    glowX -
+                        width * 0.45f,
+                    glowY -
+                        height * 0.25f,
+                    glowX +
+                        width * 0.45f,
+                    glowY +
+                        height * 0.55f,
                     0x38FFFFFF,
                     0x00FFFFFF,
                     Shader.TileMode.CLAMP
                 )
-            }
 
             canvas.drawRect(
                 0f,
                 0f,
-                w,
-                h,
+                width,
+                height,
                 glowPaint
             )
         }
@@ -466,46 +653,81 @@ class SoloTiltWallpaperService : WallpaperService() {
             viewHeight: Float,
             extraScale: Float
         ): Matrix {
-            val imageWidth = image.width.toFloat()
-            val imageHeight = image.height.toFloat()
 
-            val scale = max(
-                viewWidth / imageWidth,
-                viewHeight / imageHeight
-            ) * extraScale
+            val imageWidth =
+                image.width.toFloat()
 
-            val drawWidth = imageWidth * scale
-            val drawHeight = imageHeight * scale
+            val imageHeight =
+                image.height.toFloat()
 
-            val left = (viewWidth - drawWidth) / 2f
-            val top = (viewHeight - drawHeight) / 2f
+            val scale =
+                max(
+                    viewWidth / imageWidth,
+                    viewHeight / imageHeight
+                ) * extraScale
+
+            val drawWidth =
+                imageWidth * scale
+
+            val drawHeight =
+                imageHeight * scale
+
+            val left =
+                (
+                    viewWidth -
+                        drawWidth
+                    ) / 2f
+
+            val top =
+                (
+                    viewHeight -
+                        drawHeight
+                    ) / 2f
 
             return Matrix().apply {
-                postScale(scale, scale)
-                postTranslate(left, top)
+
+                postScale(
+                    scale,
+                    scale
+                )
+
+                postTranslate(
+                    left,
+                    top
+                )
             }
         }
 
         private fun drawVignette(
             canvas: Canvas,
-            w: Float,
-            h: Float
+            width: Float,
+            height: Float
         ) {
-            val shader = LinearGradient(
-                0f,
-                0f,
-                0f,
-                h,
-                0x12000000,
-                0x2E000000,
-                Shader.TileMode.CLAMP
-            )
 
-            vignettePaint.shader = shader
+            val shader =
+                LinearGradient(
+                    0f,
+                    0f,
+                    0f,
+                    height,
+                    0x12000000,
+                    0x30000000,
+                    Shader.TileMode.CLAMP
+                )
+
+            vignettePaint.shader =
+                shader
+
             canvas.drawRect(
-                RectF(0f, 0f, w, h),
+                RectF(
+                    0f,
+                    0f,
+                    width,
+                    height
+                ),
                 vignettePaint
             )
+
             vignettePaint.shader = null
         }
     }
