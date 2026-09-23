@@ -2,6 +2,7 @@ name: Build Solo Tilt APK
 
 on:
   workflow_dispatch:
+
   push:
     branches:
       - main
